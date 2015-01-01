@@ -5,16 +5,6 @@ import (
 	"io/ioutil"
 )
 
-func updateCrc(crcVar uint32, cha byte) uint32 {
-	crcVar = (crcVar << 8) ^ CrcTable[(crcVar >> 24) ^ uint32(cha)]
-	return crcVar
-}
-
-func finalizeCrc(crcVar uint32) uint32 {
-	crcVar = ^(crcVar)
-	return crcVar
-}
-
 func doCrc(text []byte) uint32 {
 	crc := CrcInitVal
 	for _, b := range text {
