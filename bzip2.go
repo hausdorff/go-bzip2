@@ -5,9 +5,6 @@ import (
 	"io/ioutil"
 )
 
-const CrcInitVal uint32 = 0xffffffff
-var CrcTable [256]uint32
-
 func updateCrc(crcVar uint32, cha byte) uint32 {
 	crcVar = (crcVar << 8) ^ CrcTable[(crcVar >> 24) ^ uint32(cha)]
 	return crcVar
@@ -27,7 +24,6 @@ func doCrc(text []byte) uint32 {
 }
 
 func main() {
-	CrcTable = crcTable()
 	data, _ := ioutil.ReadFile("data/gutenburg20.txt")
 	text := string(data)
 
