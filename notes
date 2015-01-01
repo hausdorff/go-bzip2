@@ -1,0 +1,11 @@
+  gutenburg.txt:
+    block 1: crc = 0x90908cfd, combined CRC = 0x90908cfd, size = 899981
+    block 2: crc = 0xb5861096, combined CRC = 0x94a7096d, size = 899981
+    block 3: crc = 0x20856634, combined CRC = 0x09cb74ef, size = 899981
+    block 4: crc = 0x34f8d641, combined CRC = 0x276e3f9f, size = 899981
+    block 5: crc = 0x07b02298, combined CRC = 0x496c5da6, size = 899981
+    block 6: crc = 0xe64d1205, combined CRC = 0x7495a949, size = 899981
+    block 7: crc = 0xa66ec8a1, combined CRC = 0x4f459a33, size = 899981
+    block 8: crc = 0x79912eb4, combined CRC = 0xe71a1ad2, size = 176853
+    final combined CRC = 0xe71a1ad2
+    3.674:1,  2.178 bits/byte, 72.78% saved, 6488666 in, 1766283 out.
