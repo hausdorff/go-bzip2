@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ufwb version="1.9">
+    <grammar name="BZ2 grammar" start="id:31" author="Alex Clemmer" uti="public.bzip2-archive">
+        <description>Grammar for BZ2 files</description>
+        <structure name="BZ2 file" id="31" length="0" encoding="ISO_8859-1:1987" endian="big" signed="no">
+            <string name="BZ2_magic_header" id="33" fillcolor="F0FB4A" type="fixed-length" length="2"/>
+            <string name="encoding_type" id="34" fillcolor="FF962D" type="fixed-length" length="1"/>
+            <number name="blockSize" id="46" type="integer" length="1"/>
+            <structure name="block" id="56" length="0">
+                <binary name="blockHeaderMagic" id="55" fillcolor="FFD5AE" length="6"/>
+                <binary name="crc" id="58" fillcolor="99DDFF" length="4"/>
+                <number name="randomizedBlock" id="60" type="integer" length="1" lengthunit="bit"/>
+                <number name="bwtPtr" id="59" fillcolor="FF7294" type="integer" length="3"/>
+                <binary name="symbolRangeUsedBitmap" id="61" length="2"/>
+            </structure>
+        </structure>
+    </grammar>
+</ufwb>
