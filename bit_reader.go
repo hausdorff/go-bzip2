@@ -15,9 +15,9 @@ import (
 // be checked afterwards.
 type bitReader struct {
 	r    io.ByteReader
-	n    uint64
-	bits uint
-	err  error
+	n    uint64        // holds the bites we've read
+	bits uint          // number of bits we've currently got in n
+	err  error         // error holder
 }
 
 // newBitReader returns a new bitReader reading from r. If r is not

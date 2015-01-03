@@ -42,6 +42,23 @@ type reader struct {
 	repeats     uint     // the number of copies of lastByte to output.
 }
 
+type writer struct {
+	bw        io.Writer
+	fileCRC   uint32
+	blockCRC  uint32
+	blockSize int
+}
+
+func NewWriter(w io.Writer) io.Writer {
+	bz2 := new(writer)
+	bz2.bw = w
+	return bz2
+}
+
+func (bz2 *writer) Write(buf []byte) (int, error) {
+	return bz2.bw.Write(buf)
+}
+
 // NewReader returns an io.Reader which decompresses bzip2 data from r.
 // If r does not also implement io.ByteReader,
 // the decompressor may read more data than necessary from r.
@@ -55,10 +72,12 @@ const bzip2FileMagic = 0x425a // "BZ"
 const bzip2BlockMagic = 0x314159265359
 const bzip2FinalMagic = 0x177245385090
 
-// setup parses the bzip2 header.
+// Parses the header of the bz2 file and returns an error if it finds one.
+// Also initializes the file CRC, the block size, and the `tt` array.
 func (bz2 *reader) setup(needMagic bool) error {
 	br := &bz2.br
 
+	// if we haven't consumed the magic number at the start of the block yet
 	if needMagic {
 		magic := br.ReadBits(16)
 		if magic != bzip2FileMagic {
@@ -67,20 +86,26 @@ func (bz2 *reader) setup(needMagic bool) error {
 		fmt.Printf("header\t\t0x%x\t\t0b%b\t%s\n", magic, magic, "BZ")
 	}
 
+	// look for the 'h' in the header
 	t := br.ReadBits(8)
 	if t != 'h' {
 		return StructuralError("non-Huffman entropy encoding")
 	}
 	fmt.Printf("comp type\t0x%x\t\t0b%b\t\t%s\n", t, t, string(t))
 
+	// look for the block size in block header
 	level := br.ReadBits(8)
 	if level < '1' || level > '9' {
 		return StructuralError("invalid compression level")
 	}
 	fmt.Printf("level\t\t0x%x\t\t0b%b\t\t%s\n", level, level, string(level))
 
+	// Initialize the file-wide CRC, block size, and the `tt` array
+	// (whatever that is)
 	bz2.fileCRC = 0
 	bz2.blockSize = 100 * 1024 * (int(level) - '0')
+	// This conditional is useful for when we call setup more than once and
+	// the tt array is not big enough the second time.
 	if bz2.blockSize > len(bz2.tt) {
 		bz2.tt = make([]uint32, bz2.blockSize)
 	}
@@ -93,33 +118,33 @@ func (bz2 *reader) Read(buf []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	// Parse the head of the bzip2 file if we need to
+	// ??? under what circumstances are we calling this and bz2.setupDone is
+	// not complete???
 	if !bz2.setupDone {
-		// parse the bz2 header to get things like the block size
+		// Here we parse the header and get an error `err` if something
+		// failed. Then we check the bitReader ito see if something
+		// failed and overwrite the local error if there is some
+		// failure. If either of those things is true, then we return
+		// the error. Else we mark setup as done and proceed.
 		err = bz2.setup(true)
-		// if there was an error reading the bits, then we report it
 		brErr := bz2.br.Err()
-		// if the bitreader error is nil then set err to that value
 		if brErr != nil {
 			err = brErr
 		}
-		// return if there's an error
 		if err != nil {
 			return 0, err
 		}
-		// set the setup flag
 		bz2.setupDone = true
 	}
 
-	// start to read the block
+	// Attempt to read decoded data into buf. If there's an error, report
+	// it; if the bitReader has an error, replace our error with that one.
+	// Return the n and the err using the default return path.
 	n, err = bz2.read(buf)
-	// check the bitreader for errors again
 	brErr := bz2.br.Err()
-	// set the error to the underlying bitreader
 	if brErr != nil {
 		err = brErr
 	}
-	// return number of bytes read and error if any
 	return
 }
 
@@ -176,39 +201,42 @@ func (bz2 *reader) readFromBlock(buf []byte) int {
 	return n
 }
 
+// Decompress bytes from bz2 to the byte array, returning the number of
+// bytes read and an error if applicable.
 func (bz2 *reader) read(buf []byte) (int, error) {
-	// Attempt to read "from" block, which contains the RLE preproc step
-	// (whatever that is). We check the CRC and if all is well we attempt
-	// to get the next block, or else it will be the end of the stream
 	for {
+		// Un-RLE the data, put the unencoded data in buf, and update
+		// the checksum.
 		n := bz2.readFromBlock(buf)
+		fmt.Println("\tn", n)
 		if n > 0 {
 			bz2.blockCRC = updateCRC(bz2.blockCRC, buf[:n])
 			return n, nil
 		}
 
-		// End of block. Check CRC.
+		// Error if _last_ block's CRC doesn't match desired CRC.
 		if bz2.blockCRC != bz2.wantBlockCRC {
 			bz2.br.err = StructuralError("block checksum mismatch")
 			return 0, bz2.br.err
 		}
 
-		// Find next block.
+		// Attempt to get the block header. Is either the start-of-block
+		// marker, or the final block marker.
 		br := &bz2.br
 		switch br.ReadBits64(48) {
 		default:
 			return 0, StructuralError("bad magic value found")
 
+		// NEW BWT BLOCK
 		case bzip2BlockMagic:
 			fmt.Printf("blockStartMagic\t0x%x\t0b%b\n", bzip2BlockMagic, bzip2BlockMagic)
-			// Start of block.
 			err := bz2.readBlock()
 			if err != nil {
 				return 0, err
 			}
 
+		// FINAL BLOCK
 		case bzip2FinalMagic:
-			// Check end-of-file CRC.
 			wantFileCRC := uint32(br.ReadBits64(32))
 			fmt.Printf("blockFinalMagic\t0x%x\t0b%b\n", bzip2FinalMagic, bzip2BlockMagic)
 			fmt.Printf("wantFileCRC\t0x%x\t0b%b\n", wantFileCRC, wantFileCRC)
@@ -256,17 +284,19 @@ func (bz2 *reader) read(buf []byte) (int, error) {
 
 // readBlock reads a bzip2 block. The magic number should already have been consumed.
 func (bz2 *reader) readBlock() (err error) {
+	// Read the CRC data, init the block CRC data, update the file's CRC
 	br := &bz2.br
 	bz2.wantBlockCRC = uint32(br.ReadBits64(32)) // skip checksum. TODO: check it if we can figure out what it is.
 	fmt.Printf("wantBlockCRC\t0x%x\t0b%b\n", bz2.wantBlockCRC, bz2.wantBlockCRC)
 	bz2.blockCRC = 0
-	// ??? some sort of CRC magic going on here
 	bz2.fileCRC = (bz2.fileCRC<<1 | bz2.fileCRC>>31) ^ bz2.wantBlockCRC
-	// check for deprecated file format
+
+	// Error if we use the (deprecated) "randomized" feature
 	randomized := br.ReadBits(1)
 	if randomized != 0 {
 		return StructuralError("deprecated randomized files")
 	}
+
 	// ??? the original pointer into the BTW for after the untransform ???
 	origPtr := uint(br.ReadBits(24))
 	fmt.Printf("origPtr\t\t0x%x\t\t0b%b\n", origPtr, origPtr)
@@ -363,7 +393,8 @@ func (bz2 *reader) readBlock() (err error) {
 	// Now we decode the arrays of code-lengths for each tree.
 	lengths := make([]uint8, numSymbols)
 	for i := range huffmanTrees {
-		// The code lengths are delta encoded from a 5-bit base value.
+		// The code lengths are delta encoded starting with an initial
+		// 5-bit "seed" number.
 		length := br.ReadBits(5)
 		fmt.Printf("treeLength\t0x%x\t\t0b%b\n", length, length)
 		fmt.Printf("\t\t\t\t")
